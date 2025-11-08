@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isPhysiotherapist() {
+      return isAuthenticated() && getUserRole() == 'physiotherapist';
+    }
+    
+    function isPatient() {
+      return isAuthenticated() && getUserRole() == 'patient';
+    }
+    
+    function getAssignedPhysioId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedPhysioId;
+    }
+    
+    function isAssignedPhysio(patientId) {
+      return isPhysiotherapist() && 
+             get(/databases/$(database)/documents/users/$(patientId)).data.assignedPhysioId == request.auth.uid;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isUser(userId);
+      
+      // New users can create their own profile during signup
+      allow create: if isUser(userId);
+      
+      // Users can update their own profile
+      allow update: if isUser(userId);
+      
+      // Physiotherapists can read their assigned patients
+      allow read: if isPhysiotherapist() && 
+                     resource.data.role == 'patient' && 
+                     resource.data.assignedPhysioId == request.auth.uid;
+      
+      // Physiotherapists can assign patients to themselves
+      // Only allow updating assignedPhysioId field, and only to their own UID
+      allow update: if isPhysiotherapist() && 
+                      resource.data.role == 'patient' &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assignedPhysioId']) &&
+                      request.resource.data.assignedPhysioId == request.auth.uid;
+    }
+    
+    // Exercise templates collection
+    match /exercises/{exerciseId} {
+      // Anyone authenticated can read exercise templates
+      allow read: if isAuthenticated();
+      
+      // Only physiotherapists can create exercise templates
+      allow create: if isPhysiotherapist();
+      
+      // Only the creator can update or delete their exercises
+      allow update, delete: if isPhysiotherapist() && 
+                               resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Assigned exercises subcollection
+    match /patients/{patientId}/assignedExercises/{assignedId} {
+      // Patients can read their own assigned exercises
+      allow read: if isUser(patientId);
+      
+      // Patients can update their assigned exercises (e.g., mark as started/completed)
+      allow update: if isUser(patientId);
+      
+      // Assigned physiotherapist can read and create exercises for their patients
+      allow read, create: if isAssignedPhysio(patientId);
+      
+      // Assigned physiotherapist can update exercises they assigned
+      allow update: if isAssignedPhysio(patientId) && 
+                      resource.data.assignedBy == request.auth.uid;
+    }
+    
+    // Readings subcollection
+    match /readings/{patientId}/events/{readingId} {
+      // Patients can read and write their own readings
+      allow read, create: if isUser(patientId);
+      
+      // Assigned physiotherapist can read patient readings
+      allow read: if isAssignedPhysio(patientId);
+      
+      // Cloud Functions can update readings (for n8n response)
+      // This allows server-side updates after webhook calls
+      allow update: if isUser(patientId) || isAssignedPhysio(patientId);
+    }
+    
+    // Exercise progress subcollection
+    match /progress/{patientId}/exerciseProgress/{progressId} {
+      // Patients can read and write their own progress
+      allow read, create, update: if isUser(patientId);
+      
+      // Assigned physiotherapist can read patient progress
+      allow read: if isAssignedPhysio(patientId);
+    }
+  }
+}

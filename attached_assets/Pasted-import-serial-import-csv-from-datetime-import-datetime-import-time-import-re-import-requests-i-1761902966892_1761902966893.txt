@@ -1,0 +1,175 @@
+import serial
+import csv
+from datetime import datetime
+import time
+import re
+import requests
+import json
+
+# Configure these parameters according to your setup
+BLUETOOTH_PORT = 'COM6'  # Windows: usually COM3, COM4, etc.
+# BLUETOOTH_PORT = '/dev/tty.HC-05-DevB'  # macOS
+# BLUETOOTH_PORT = '/dev/ttyUSB0'  # Linux
+BAUD_RATE = 9600
+
+# N8N Webhook URL
+N8N_WEBHOOK_URL = "https://clakshanaa1.app.n8n.cloud/webhook-test/patient-query"
+
+def parse_serial_data(line):
+    """
+    Parse the serial data line to extract values for each column
+    """
+    data = {
+        'Arduino': 'Arduino',
+        'message': '',
+        'Knee': 'Knee',
+        'Angle': '',
+        'Roll': '',
+        'Pitch': '',
+        'Yaw': '',
+        'Recording': '',
+        'N8N_Status': '',  # Status of webhook request
+        'N8N_Response': '',  # Full response from N8N
+        'N8N_StatusCode': ''  # HTTP status code from N8N
+    }
+    
+    # Try to extract values using regex patterns
+    angle_match = re.search(r'Angle:\s*([\d.]+)', line)
+    roll_match = re.search(r'Roll:\s*([\d.-]+)', line)
+    pitch_match = re.search(r'Pitch:\s*([\d.-]+)', line)
+    yaw_match = re.search(r'Yaw:\s*([\d.-]+)', line)
+    recording_match = re.search(r'Recording:\s*(\w+)', line)
+    
+    if angle_match:
+        data['Angle'] = angle_match.group(1)
+    if roll_match:
+        data['Roll'] = roll_match.group(1)
+    if pitch_match:
+        data['Pitch'] = pitch_match.group(1)
+    if yaw_match:
+        data['Yaw'] = yaw_match.group(1)
+    if recording_match:
+        data['Recording'] = recording_match.group(1)
+    
+    # Check if this line contains a message
+    if 'message:' in line.lower():
+        data['message'] = line.strip()
+    
+    return data
+
+def send_to_n8n_webhook(data):
+    """
+    Send data to N8N webhook and return status, response, and status code
+    """
+    try:
+        # Prepare the payload for N8N
+        payload = {
+            "timestamp": datetime.now().isoformat(),
+            "arduino_data": {
+                "knee_angle": data['Angle'],
+                "roll": data['Roll'],
+                "pitch": data['Pitch'],
+                "yaw": data['Yaw'],
+                "recording_status": data['Recording']
+            },
+            "source": "arduino_knee_monitor"
+        }
+        
+        # Send POST request to N8N webhook
+        response = requests.post(
+            N8N_WEBHOOK_URL,
+            json=payload,
+            headers={'Content-Type': 'application/json'},
+            timeout=10  # 10 second timeout
+        )
+        
+        # Return status, response content, and status code
+        return "Success", response.text, response.status_code
+        
+    except requests.exceptions.RequestException as e:
+        return f"Request Failed: {str(e)}", str(e), "0"
+    except Exception as e:
+        return f"Unexpected Error: {str(e)}", str(e), "0"
+
+def capture_arduino_data():
+    try:
+        # Initialize serial connection
+        ser = serial.Serial(BLUETOOTH_PORT, BAUD_RATE, timeout=1)
+        print(f"Connected to {BLUETOOTH_PORT}")
+        
+        # Create CSV file with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"arduino_data_{timestamp}.csv"
+        
+        # Initialize CSV file with headers including N8N response columns
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([
+                'Arduino', 'message', 'Knee', 'Angle', 'Roll', 'Pitch', 'Yaw', 'Recording',
+                'N8N_Status', 'N8N_Response', 'N8N_StatusCode'
+            ])
+        
+        print(f"Recording data to {filename}")
+        print(f"N8N Webhook URL: {N8N_WEBHOOK_URL}")
+        print("Press Ctrl+C to stop recording")
+        
+        # Continuously read and process data
+        while True:
+            if ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                
+                if line:  # Only process non-empty lines
+                    print(f"Received: {line}")
+                    
+                    # Parse the data
+                    data = parse_serial_data(line)
+                    
+                    # Initialize N8N response fields
+                    n8n_status = "Not Sent"
+                    n8n_response = ""
+                    n8n_status_code = ""
+                    
+                    # Send to N8N webhook if we have meaningful data
+                    if data['Angle'] or data['Roll'] or data['Pitch'] or data['Yaw']:
+                        n8n_status, n8n_response, n8n_status_code = send_to_n8n_webhook(data)
+                        print(f"N8N Webhook Status: {n8n_status}")
+                        print(f"N8N Response: {n8n_response}")
+                    
+                    # Add N8N response data to our data dictionary
+                    data['N8N_Status'] = n8n_status
+                    data['N8N_Response'] = n8n_response
+                    data['N8N_StatusCode'] = n8n_status_code
+                    
+                    # Write to CSV
+                    with open(filename, 'a', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow([
+                            data['Arduino'],
+                            data['message'],
+                            data['Knee'],
+                            data['Angle'],
+                            data['Roll'],
+                            data['Pitch'],
+                            data['Yaw'],
+                            data['Recording'],
+                            data['N8N_Status'],
+                            data['N8N_Response'],
+                            data['N8N_StatusCode']
+                        ])
+            
+            time.sleep(0.1)  # Small delay to prevent CPU overuse
+            
+    except serial.SerialException as e:
+        print(f"Serial connection error: {e}")
+    except KeyboardInterrupt:
+        print("\nRecording stopped")
+        if 'ser' in locals():
+            ser.close()
+        print(f"Data saved to {filename}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        if 'ser' in locals():
+            ser.close()
+
+if __name__ == "__main__":
+    capture_arduino_data()

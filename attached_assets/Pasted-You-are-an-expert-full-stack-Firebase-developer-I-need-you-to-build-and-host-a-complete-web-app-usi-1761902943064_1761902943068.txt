@@ -1,0 +1,151 @@
+You are an expert full-stack Firebase developer.
+I need you to build and host a complete web app using Firebase (Auth, Firestore, Hosting, Cloud Functions).
+
+🔧 Core Requirements
+
+User Roles:
+
+Two user types: Physiotherapist and Patient
+
+Firebase Authentication (email/password)
+
+On sign-up, store the user profile in Firestore with fields:
+displayName, email, role, createdAt, and (if role = patient) assignedPhysioId
+
+Firestore Schema:
+
+users/{uid} → profile data
+
+exercises/{exerciseId} → exercise templates (created by physiotherapists)
+
+patients/{patientId}/assignedExercises/{assignedId} → exercises assigned to a patient
+
+readings/{patientId}/events/{readingId} → live Arduino readings
+
+progress/{patientId}/exerciseProgress/{progressId} → completion and metrics
+
+Relationships:
+
+Physiotherapists can assign exercises to patients.
+
+Patients can view assigned exercises and mark them as complete.
+
+Assign physiotherapists to patients during setup.
+
+📊 Dashboards
+
+Physiotherapist Dashboard:
+
+View list of patients
+
+Assign exercises
+
+See exercise progress (completion, reps, angles)
+
+View live Arduino readings from each patient
+
+Patient Dashboard:
+
+Connect to Arduino via browser (Web Serial API or wired)
+
+View assigned exercises and progress
+
+Start/stop recording sessions
+
+Data syncs automatically to Firestore
+
+⚙️ Device Integration
+
+Use Web Serial API to connect to an Arduino board.
+
+The device sends serial output like:
+
+Angle: 45.3 Roll: 1.2 Pitch: -0.8 Yaw: 0.1
+
+
+Parse these values in JavaScript and send them to Firestore under
+readings/{patientId}/events/ as documents with fields:
+{timestamp, angle, roll, pitch, yaw, raw, device, sentToN8N, n8nResponse}
+
+🔗 n8n Integration
+
+Add a Firebase Cloud Function that triggers when a new reading is created.
+
+The function posts the reading JSON to my provided n8n webhook URL.
+
+After posting, update the Firestore doc with {sentToN8N: true, n8nResponse: {...}}.
+
+🧠 Exercise Tracking Logic
+
+Each exercise has target metrics, e.g. angle_min, angle_max, reps, duration.
+
+Cloud Function or frontend logic updates progress/{patientId}/exerciseProgress/:
+
+Count reps when readings fall within target range.
+
+Mark exercise completed after reps threshold reached.
+
+Update completedAt and notify physiotherapist (via Firestore update or alert).
+
+🔐 Firestore Security Rules
+
+Patients can only read/write their own data.
+
+Physiotherapists can view and edit only patients assigned to them.
+
+Only physiotherapists can create exercise templates.
+
+🌐 Hosting
+
+Deploy and host entirely on Firebase (Firestore, Functions, Hosting).
+
+Use React or Vite + React for frontend UI.
+
+Include simple login/signup pages, dashboards, and device connection interface.
+
+After build, provide firebase.json, .firebaserc, and full directory structure.
+
+🧩 Deliverables
+
+firebase.js — configuration and init
+
+AuthService.js — login/signup logic
+
+DeviceConnector.js — serial connection and Firestore writes
+
+PhysioDashboard.js — manage patients + exercises
+
+PatientDashboard.js — exercise tracking + data view
+
+functions/index.js — Cloud Function for n8n + progress tracking
+
+firestore.rules — security rules for roles
+
+Deployment commands (firebase init, firebase deploy)
+
+📦 Additional Notes
+
+Use modular Firebase v9+ syntax
+
+Use React Hooks (useState, useEffect, useContext)
+
+Include comments for every major function
+
+Use clean and consistent folder structure
+
+Output all code files as separate downloadable files or combined archive
+
+Assume I’ll paste this project into Replit, then deploy to Firebase Hosting
+
+🔥 Your Task
+
+Build the entire Firebase web app project described above in working React + Cloud Functions code, ready to deploy.
+Output:
+
+Directory structure
+
+All code files (frontend + backend + rules)
+
+Firebase deploy steps
+
+Optional — suggestions for UI enhancements
